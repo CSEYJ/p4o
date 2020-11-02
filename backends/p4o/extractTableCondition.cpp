@@ -54,6 +54,12 @@ const IR::Node *BreakIfStatementBlock::preorder(IR::P4Control*c){
     return c;
 }
 
+const IR::Node *BreakIfStatementBlock::preorder(IR::P4Action *a){
+    prune();
+    return a;
+}
+
+
 const IR::Node *MergeIfStatement::postorder(IR::IfStatement* i){
     if(i->ifFalse) BUG("BreakIfStatementBlock pass failed");
     if(auto inside_if = i->ifTrue->to<IR::IfStatement>()){
@@ -101,6 +107,11 @@ const IR::Node *AppendTrueToNonIfStatement::preorder(IR::P4Control*c){
         prune();
     }
     return c;
+}
+
+const IR::Node *AppendTrueToNonIfStatement::preorder(IR::P4Action *a){
+    prune();
+    return a;
 }
 
 } //namespace P4o

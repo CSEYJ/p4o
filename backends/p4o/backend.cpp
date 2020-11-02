@@ -48,9 +48,17 @@ namespace P4O{
         auto analysis_orig = new DataDependencyAnalysis(
             refMap, typeMap, structure);
         program->apply(*analysis_orig);
+        // for(auto it: analysis_orig->dependency_map){
+        //     std::cerr << it.first << std::endl;
+        //     std::cerr << *it.second << std::endl;
+        // }
         auto new_program = 
             program->apply(ExtractTableCondition(refMap, typeMap, structure));
-        std::cout << new_program << std::endl;
+        // std::cerr << new_program << std::endl;
+        auto analysis_new = new TableDependencyAnalysis(
+            refMap, typeMap, structure, &analysis_orig->dependency_map);
+        new_program->apply(*analysis_new);
+
     }
 
 } //namespace P4O

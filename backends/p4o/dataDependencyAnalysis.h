@@ -4,6 +4,8 @@
 #include "frontends/common/resolveReferences/referenceMap.h"
 #include "backends/bmv2/simple_switch/simpleSwitch.h"
 #include "frontends/p4/cloner.h"
+#include <iostream>
+#include "lib/json.h"
 namespace P4O
 {
 struct DependencyInfo{
@@ -11,9 +13,29 @@ struct DependencyInfo{
     std::vector<const IR::Node *> unordered_control;
     std::set<const IR::Node *> write_list;
     std::set<const IR::Node *> read_list;
+public:
+    friend std::ostream& operator<<(std::ostream &out, const DependencyInfo &i){
+        out << "ordered_control:" << std::endl;
+        for(auto it: i.ordered_control){
+            out << it << std::endl;
+        }
+        out << "unordered_control:" << std::endl;
+        for(auto it: i.unordered_control){
+            out << it << std::endl;
+        }
+        out << "write_list:" << std::endl;
+        for(auto it: i.write_list){
+            out << it << std::endl;
+        }
+        out << "read_list:" << std::endl;
+        for(auto it: i.read_list){
+            out << it << std::endl;
+        }
+        return out;
+    }
 };
 
-class DoDataDependencyAnalysis: public Inspector{
+class DataDependencyAnalysis: public Inspector{
     P4::ReferenceMap *refMap;
     P4::TypeMap *typeMap;
     BMV2::V1ProgramStructure *v1arch;
@@ -34,7 +56,7 @@ class DoDataDependencyAnalysis: public Inspector{
     }
 
 public:
-    DoDataDependencyAnalysis(
+    DataDependencyAnalysis(
         P4::ReferenceMap *refMap,
         P4::TypeMap *typeMap,
         BMV2::V1ProgramStructure *v1arch
@@ -55,6 +77,15 @@ public:
 class ExpressionBreakdown: public Inspector{
     P4::ReferenceMap *refMap;
     P4::TypeMap *typeMap;
+    void simple_expr_sanity(const IR::Node *n){
+        if(
+            n->is<IR::Constant>() or
+            n->is<IR::Member>() or
+            n->is<IR::PathExpression>()
+        ) return;
+        std::cerr << n->node_type_name() << std::endl;
+        BUG("not a simple expression");
+    }
     void sanity(const IR::Node *n){
         if(
             n->is<IR::Operation_Binary>() or
@@ -83,15 +114,90 @@ public:
 
 };
 
-class DataDependencyAnalysis: public PassManager{
+class LiftDependencyToTopLevel: public Inspector{
+    std::map<const IR::Node *, DependencyInfo *> *dependency_map;
 public:
-    DataDependencyAnalysis(
+    const IR::Node **top_level_block;
+    LiftDependencyToTopLevel(
+        std::map<const IR::Node *, DependencyInfo *> *dependency_map
+    ):dependency_map(dependency_map){
+        top_level_block = new const IR::Node*;
+    }
+    bool preorder(const IR::P4Program*) override;
+};
+
+class GenerateDependencyGraph: public Inspector{
+    std::map<const IR::Node *, DependencyInfo *> *dependency_map;
+    std::map<const IR::Node *, DependencyInfo *> *orig_dependency_map;
+    int compare(const IR::Node *, const IR::Node *, DependencyInfo *);
+    int has_dependency(const IR::Node *, const IR::Node *);
+    const int init = 0;
+    const int find_table1 = 1;
+    const int find_table2 = 2;
+    const int before = 3;
+    const int after = 4;
+    const int dont_care = 5;
+    const int read_after_write = 6;
+    const int write_after_write = 7;
+    const int write_after_read = 8;
+    const int no_dependency = 9;
+    const IR::Node ** top_level_block;
+    Util::JsonObject *table_info;
+public:
+    GenerateDependencyGraph(
+        std::map<const IR::Node *, DependencyInfo *> *dependency_map,
+        std::map<const IR::Node *, DependencyInfo *> *orig_dependency_map,
+        const IR::Node ** top_level_block,
+        Util::JsonObject *table_info
+    ):
+        dependency_map(dependency_map),
+        orig_dependency_map(orig_dependency_map),
+        top_level_block(top_level_block),
+        table_info(table_info){}
+    bool preorder(const IR::P4Program* ) override;
+        
+};
+
+class CollectTableInfo: public Inspector{
+    Util::JsonObject *table_info;
+    BMV2::V1ProgramStructure *v1arch;
+    Util::JsonArray *info;
+public:
+    CollectTableInfo(
+        Util::JsonObject *table_info,
+        BMV2::V1ProgramStructure *v1arch
+    ): 
+        table_info(table_info),
+        v1arch(v1arch){
+            info = new Util::JsonArray();
+            table_info->emplace("info", info);
+        }
+    bool preorder(const IR::P4Control* ) override;
+    bool preorder(const IR::P4Table* ) override;
+    void postorder(const IR::P4Control* ) override;
+};
+
+
+class TableDependencyAnalysis: public PassManager{
+    Util::JsonObject table_info;
+public:
+    TableDependencyAnalysis(
         P4::ReferenceMap *refMap,
         P4::TypeMap *typeMap,
-        BMV2::V1ProgramStructure *v1arch)
-    {
-        passes.push_back(new DoDataDependencyAnalysis(refMap, typeMap, v1arch));
+        BMV2::V1ProgramStructure*v1arch,
+        std::map<const IR::Node *, P4O::DependencyInfo *> *orig_map
+    ){
+        auto analysis = new DataDependencyAnalysis(refMap, typeMap, v1arch);
+        passes.push_back(analysis);
+        auto lift = new LiftDependencyToTopLevel(orig_map);
+        passes.push_back(lift);
+        passes.push_back(new LiftDependencyToTopLevel(&analysis->dependency_map));
+        passes.push_back(new GenerateDependencyGraph(
+            &analysis->dependency_map, orig_map, lift->top_level_block, &table_info));
+        passes.push_back(new CollectTableInfo(&table_info, v1arch));
+        
     }
+
 };
 
 } // namespace P4O

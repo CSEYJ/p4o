@@ -14,6 +14,7 @@ public:
     const IR::Node *postorder(IR::IfStatement*) override;
     const IR::Node *preorder(IR::P4Parser*) override;
     const IR::Node *preorder(IR::P4Control*) override;
+    const IR::Node *preorder(IR::P4Action *) override;
 };
 
 class MergeIfStatement: public Transform{
@@ -31,6 +32,7 @@ public:
     const IR::Node *postorder(IR::BlockStatement*) override;
     const IR::Node *preorder(IR::P4Parser*) override;
     const IR::Node *preorder(IR::P4Control*) override;
+    const IR::Node *preorder(IR::P4Action *) override;
 };
 
 class ExtractTableCondition: public PassManager{
