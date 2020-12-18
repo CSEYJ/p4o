@@ -1,6 +1,7 @@
 #include "extractTableCondition.h"
 namespace P4O{
 const IR::Node *BreakIfStatementBlock::postorder(IR::IfStatement* i){
+    bool changed = false;
     IR::IndexedVector<IR::StatOrDecl> code_block;
     if(auto true_block = i->ifTrue->to<IR::BlockStatement>()){
         for(auto stmt: true_block->components){
@@ -8,6 +9,7 @@ const IR::Node *BreakIfStatementBlock::postorder(IR::IfStatement* i){
                 new IR::IfStatement(
                     i->condition, stmt->to<IR::Statement>(), nullptr));
         }
+        changed = true;
     }
     else if(i->ifTrue->is<IR::MethodCallStatement>() or 
         i->ifTrue->is<IR::IfStatement>()){
@@ -27,6 +29,7 @@ const IR::Node *BreakIfStatementBlock::postorder(IR::IfStatement* i){
                     nullptr
                 ));
         }
+        changed = true;
     }
     else if(i->ifFalse->is<IR::MethodCallStatement>() or
         i->ifFalse->is<IR::IfStatement>()){
@@ -36,19 +39,21 @@ const IR::Node *BreakIfStatementBlock::postorder(IR::IfStatement* i){
                 i->ifFalse, 
                 nullptr
             ));
+        changed = true;
     }
     else if(not i->ifFalse->is<IR::EmptyStatement>() and i->ifFalse){
         std::cerr << i->ifFalse << std::endl; 
         BUG("not implemented");
     }
-    return new IR::BlockStatement(code_block);
+    if(changed) return new IR::BlockStatement(code_block);
+    else return i;
 }
 const IR::Node *BreakIfStatementBlock::preorder(IR::P4Parser*p){
     prune();
     return p;
 }
 const IR::Node *BreakIfStatementBlock::preorder(IR::P4Control*c){
-    if(v1arch->ingress->name != c->name){
+    if(v1arch->ingress->name != c->name and c->name != v1arch->egress->name){
         prune();
     }
     return c;
@@ -77,7 +82,7 @@ const IR::Node *MergeIfStatement::preorder(IR::P4Parser*p){
     return p;
 }
 const IR::Node *MergeIfStatement::preorder(IR::P4Control*c){
-    if(v1arch->ingress->name != c->name){
+    if(v1arch->ingress->name != c->name and c->name != v1arch->egress->name){
         prune();
     }
     return c;
@@ -103,7 +108,7 @@ const IR::Node *AppendTrueToNonIfStatement::preorder(IR::P4Parser*p){
     return p;
 }
 const IR::Node *AppendTrueToNonIfStatement::preorder(IR::P4Control*c){
-    if(v1arch->ingress->name != c->name){
+    if(v1arch->ingress->name != c->name and c->name != v1arch->egress->name){
         prune();
     }
     return c;

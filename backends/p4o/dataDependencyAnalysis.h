@@ -64,6 +64,7 @@ public:
         typeMap(typeMap),
         v1arch(v1arch) {}
     std::map<const IR::Node *, DependencyInfo *> dependency_map;
+    bool preorder(const IR::P4Program *) override;
     bool preorder(const IR::P4Control *) override;
     bool preorder(const IR::BlockStatement *) override;
     bool preorder(const IR::P4Table *) override;
@@ -130,17 +131,15 @@ class GenerateDependencyGraph: public Inspector{
     std::map<const IR::Node *, DependencyInfo *> *dependency_map;
     std::map<const IR::Node *, DependencyInfo *> *orig_dependency_map;
     int compare(const IR::Node *, const IR::Node *, DependencyInfo *);
-    int has_dependency(const IR::Node *, const IR::Node *);
+    int has_dependency(const IR::Node *, const IR::Node *, Util::JsonArray * variable_shared);
     const int init = 0;
     const int find_table1 = 1;
     const int find_table2 = 2;
     const int before = 3;
     const int after = 4;
     const int dont_care = 5;
-    const int read_after_write = 6;
-    const int write_after_write = 7;
-    const int write_after_read = 8;
-    const int no_dependency = 9;
+    const int dependency = 6;
+    const int no_dependency = 7;
     const IR::Node ** top_level_block;
     Util::JsonObject *table_info;
 public:
@@ -174,7 +173,7 @@ public:
         }
     bool preorder(const IR::P4Control* ) override;
     bool preorder(const IR::P4Table* ) override;
-    void postorder(const IR::P4Control* ) override;
+    void postorder(const IR::P4Program* ) override;
 };
 
 

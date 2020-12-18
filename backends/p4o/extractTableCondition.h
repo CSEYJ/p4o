@@ -35,6 +35,19 @@ public:
     const IR::Node *preorder(IR::P4Action *) override;
 };
 
+class PrintProgram: public Inspector{
+public:
+    PrintProgram(){}
+    bool preorder(const IR::P4Program *p) override{
+        for(auto n : p->objects){
+            if(n->is<IR::P4Control>()){
+                std::cerr << n << std::endl<< std::endl<< std::endl;
+            }
+        }
+        return false;
+    }
+};
+
 class ExtractTableCondition: public PassManager{
 public:
     ExtractTableCondition(
@@ -42,8 +55,14 @@ public:
         P4::TypeMap *typeMap,
         BMV2::V1ProgramStructure *v1arch
         ){
-        passes.push_back(new BreakIfStatementBlock(v1arch));
-        passes.push_back(new P4::SimplifyControlFlow(refMap, typeMap));
+        auto repeated = new PassRepeated();
+        repeated->addPasses({
+            new BreakIfStatementBlock(v1arch),
+            new P4::SimplifyControlFlow(refMap, typeMap)
+        });
+
+        passes.push_back(repeated);
+        // passes.push_back(new PrintProgram());
         passes.push_back(new MergeIfStatement(v1arch));
         passes.push_back(new AppendTrueToNonIfStatement(v1arch));
     }

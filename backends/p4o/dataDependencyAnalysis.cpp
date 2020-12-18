@@ -1,11 +1,33 @@
 #include "dataDependencyAnalysis.h"
 namespace P4O{
+bool DataDependencyAnalysis::preorder(const IR::P4Program* p){
+    auto info = new DependencyInfo;
+    dependency_map.emplace(p, info);
+    const IR::Node *ingress, *egress;
+    for(auto n : p->objects){
+        if(auto control = n->to<IR::P4Control>()){
+            if(control->name == v1arch->ingress->name){
+                ingress = control;
+            }
+            else if(control->name == v1arch->egress->name){
+                egress = control;
+            }
+        }
+    }
+    info->ordered_control.push_back(ingress);
+    info->ordered_control.push_back(egress);
+    sanity(ingress);
+    visit(ingress);
+    sanity(egress);
+    visit(egress);
+    return false;
+}
+
 bool DataDependencyAnalysis::preorder(const IR::P4Parser*){
     return false;
 }
 
 bool DataDependencyAnalysis::preorder(const IR::P4Control *c){
-    if(c->name != v1arch->ingress->name) return false;
     auto info = new DependencyInfo;
     dependency_map.emplace(c, info);
     info->ordered_control.push_back(c->body);
@@ -143,6 +165,31 @@ bool ExpressionBreakdown::preorder(const IR::MethodCallExpression *mce){
 
         }
         else if(builtin->name == "setInvalid"){
+
+        }
+        else{
+            std::cerr << mce << std::endl;
+            BUG("not implemented");
+        }
+    }
+    else if(auto ef = mi->to<P4::ExternFunction>()){
+        if(ef->method->getName()  == "hash"){
+            auto out = (*ef->expr->arguments)[0]->expression;
+            simple_expr_sanity(out);
+            write_list.insert(out);
+            auto in = (*ef->expr->arguments)[3]->expression;
+            if(auto list = in->to<IR::ListExpression>()){
+                for(auto element : list->components){
+                    simple_expr_sanity(element);
+                    read_list.insert(element);
+                }
+            }
+            else{
+                simple_expr_sanity(in);
+                read_list.insert(in);
+            }
+        }
+        else if(ef->method->getName() == "clone3"){
 
         }
         else{
@@ -393,7 +440,8 @@ compare(const IR::Node *table1, const IR::Node *table2, DependencyInfo *info){
 }
 
 int GenerateDependencyGraph::
-has_dependency(const IR::Node *table1, const IR::Node *table2){
+has_dependency(const IR::Node *table1, const IR::Node *table2, Util::JsonArray * variable_shared){
+    int has_dep = no_dependency;
     auto it1 = dependency_map->find(table1);
     auto it2 = dependency_map->find(table2);
     DependencyInfo *info1, *info2;
@@ -408,31 +456,34 @@ has_dependency(const IR::Node *table1, const IR::Node *table2){
     for(auto it1: info1->read_list){
         for(auto it2: info2->write_list){
             if(it1->equiv(*it2)) {
-                // std::cout << it1 << std::endl;
-                // std::cout << it2 << std::endl;
-                return read_after_write;
+                auto variable = new Util::JsonObject();
+                variable->emplace("read_after_write", it1->toString());
+                variable_shared->append(variable);
+                has_dep = dependency;
             }
         }
     }
     for(auto it1: info1->write_list){
         for(auto it2: info2->write_list){
             if(it1->equiv(*it2)) {
-                // std::cout << it1 << std::endl;
-                // std::cout << it2 << std::endl;
-                return write_after_write;
+                auto variable = new Util::JsonObject();
+                variable->emplace("write_after_write", it1->toString());
+                variable_shared->append(variable);
+                has_dep = dependency;
             }
         }
     }
     for(auto it1: info1->write_list){
         for(auto it2: info2->read_list){
             if(it1->equiv(*it2)) {
-                // std::cout << it1 << std::endl;
-                // std::cout << it2 << std::endl;
-                return write_after_read;
+                auto variable = new Util::JsonObject();
+                variable->emplace("write_after_read", it1->toString());
+                variable_shared->append(variable);
+                has_dep = dependency;
             }
         }
     }
-    return no_dependency;
+    return has_dep;
 }
 
 
@@ -456,7 +507,8 @@ bool GenerateDependencyGraph::preorder(const IR::P4Program*){
                     if(if1->equiv(*if2)) continue;
                     auto table2 = if2->ifTrue;
                     auto cmp_res = compare(table1, table2, top_info);
-                    auto has_dep = has_dependency(table1, table2);
+                    auto variable_shared = new Util::JsonArray();
+                    auto has_dep = has_dependency(if1, if2, variable_shared);
                     auto table2_name = table2->to<IR::MethodCallStatement>()->methodCall->method->to<IR::Member>()->expr->to<IR::PathExpression>()->path->name.name;
                     if(cmp_res == init or cmp_res == find_table1 or cmp_res == find_table2){
                         std::cerr << table1 << std::endl << std::endl;
@@ -465,12 +517,12 @@ bool GenerateDependencyGraph::preorder(const IR::P4Program*){
                     }
                     else if(cmp_res == after){
                         if(
-                            has_dep == write_after_read || 
-                            has_dep == write_after_write ||
-                            has_dep == read_after_write
+                            has_dep == dependency
                         ){
                             auto dep_obj = new Util::JsonObject();
-                            dep_obj->emplace(table1_name, table2_name);
+                            dep_obj->emplace("variables_shared", variable_shared);
+                            dep_obj->emplace("leading", table2_name);
+                            dep_obj->emplace("following", table1_name);
                             dep_array->append(dep_obj);
                             // std::cout << table1_name << " -> " << table2_name 
                             //     << ";" << std::endl;
@@ -501,7 +553,7 @@ bool GenerateDependencyGraph::preorder(const IR::P4Program*){
 
 
 bool CollectTableInfo::preorder(const IR::P4Control* c){
-    if(c->name != v1arch->ingress->name){
+    if(c->name != v1arch->ingress->name and c->name != v1arch->egress->name){
         return false;
     }
     return true;
@@ -536,7 +588,7 @@ bool CollectTableInfo::preorder(const IR::P4Table* t) {
     return false;
 }
 
-void CollectTableInfo::postorder(const IR::P4Control *){
+void CollectTableInfo::postorder(const IR::P4Program *){
     table_info->serialize(std::cout);
 }
 
