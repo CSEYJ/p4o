@@ -1,4 +1,6 @@
 #include "backend.h"
+#include <iostream>
+#include <fstream>
 namespace P4O{
     void P4OBackend::analysis(const IR::ToplevelBlock *tlb)
     {
@@ -58,7 +60,15 @@ namespace P4O{
         auto analysis_new = new TableDependencyAnalysis(
             refMap, typeMap, structure, &analysis_orig->dependency_map);
         new_program->apply(*analysis_new);
-
+        std::ofstream f("sorted_netcache.p4");
+        P4::ToP4 top4(&f, false);
+        for(auto node: new_program->objects){
+            if(node->is<IR::P4Control>()){
+                node->apply(top4);
+                return;
+            }
+        }
+        
     }
 
 } //namespace P4O

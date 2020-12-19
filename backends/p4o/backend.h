@@ -6,6 +6,7 @@
 #include "frontends/p4/cloner.h"
 #include "dataDependencyAnalysis.h"
 #include "extractTableCondition.h"
+#include "frontends/p4/toP4/toP4.h"
 namespace P4O{
 class P4OBackend{
     const IR::ToplevelBlock *toplevel;
