@@ -192,6 +192,12 @@ bool ExpressionBreakdown::preorder(const IR::MethodCallExpression *mce){
         else if(ef->method->getName() == "clone3"){
 
         }
+        else if(ef->method->getName() == "route_by_ip"){
+
+        }
+        else if(ef->method->getName() == "route_to_program"){
+            
+        }
         else{
             std::cerr << mce << std::endl;
             BUG("not implemented");
